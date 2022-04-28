@@ -33,7 +33,7 @@ class Trainer(BaseTrainer):
         self.threshold = threshold
         self.eval_sample = eval_sample
 
-        if vis_dir is not None and not os.path.exists(vis_dir):
+        if vis_dir is not None and not os.path.exists(vis_dir): #!!!!!
             os.makedirs(vis_dir)
 
     def train_step(self, data):

@@ -10,25 +10,24 @@ from src import config, data
 from src.checkpoints import CheckpointIO
 from collections import defaultdict
 import shutil
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 
-if __name__ == '__main__':
-    # Arguments
-    parser = argparse.ArgumentParser(
-        description='Train a 3D reconstruction model.'
-    )
-    parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--no-cuda', action='store_true', help='Do not use cuda.')
-    parser.add_argument('--exit-after', type=int, default=-1,
-                        help='Checkpoint and exit after specified number of seconds'
-                            'with exit code 2.')
 
-    args = parser.parse_args()
-    cfg = config.load_config(args.config, 'configs/default.yaml')
-    is_cuda = (torch.cuda.is_available() and not args.no_cuda)
-    device = torch.device("cuda" if is_cuda else "cpu")
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
 
-    # Set t0
-    t0 = time.time()
+    # initialize the process group
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+
+def cleanup():
+    dist.destroy_process_group()
+
+def train_basic(rank, cfg, args, t0, world_size):
+    print(f"Running basic DDP on rank {rank}.")
+    setup(rank, world_size)
 
     # Shorthands
     out_dir = cfg['training']['out_dir']
@@ -47,10 +46,11 @@ if __name__ == '__main__':
                         'either maximize or minimize.')
 
     # Output directory
-    if not os.path.exists(out_dir):
+    if not rank and not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    shutil.copyfile(args.config, os.path.join(out_dir, 'config.yaml'))
+    if not rank:
+        shutil.copyfile(args.config, os.path.join(out_dir, 'config.yaml'))#!!!!!!
 
     # Dataset
     train_dataset = config.get_dataset('train', cfg)
@@ -72,13 +72,12 @@ if __name__ == '__main__':
         val_dataset, batch_size=1, shuffle=False,
         collate_fn=data.collate_remove_none,
         worker_init_fn=data.worker_init_fn)
-    model_counter = defaultdict(int)
-    data_vis_list = []
+    model_counter = defaultdict(int)#!!!!!
+    data_vis_list = []#!!!!!!
 
     # Build a data dictionary for visualization
+    #!!!!
     iterator = iter(vis_loader)
-    print(vis_loader)
-    print(iterator)
     for i in range(len(vis_loader)):
         data_vis = next(iterator)
         idx = data_vis['idx'].item()
@@ -94,19 +93,20 @@ if __name__ == '__main__':
             data_vis_list.append({'category': category_name, 'it': c_it, 'data': data_vis})
 
         model_counter[category_id] += 1
+    #!!!!!!
 
     # Model
     model = config.get_model(cfg, device=device, dataset=train_dataset)
 
-    # Generator
+    # Generator!!!!!!!!
     generator = config.get_generator(model, cfg, device=device)
 
     # Intialize training
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)#??????
     # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
-    trainer = config.get_trainer(model, optimizer, cfg, device=device)
+    trainer = config.get_trainer(model, optimizer, cfg, device=device)#???????
 
-    checkpoint_io = CheckpointIO(out_dir, model=model, optimizer=optimizer)
+    checkpoint_io = CheckpointIO(out_dir, model=model, optimizer=optimizer)#!!!!!!
     try:
         load_dict = checkpoint_io.load('model.pt')
     except FileExistsError:
@@ -120,7 +120,7 @@ if __name__ == '__main__':
         metric_val_best = -model_selection_sign * np.inf
     print('Current best validation metric (%s): %.8f'
         % (model_selection_metric, metric_val_best))
-    logger = SummaryWriter(os.path.join(out_dir, 'logs'))
+    logger = SummaryWriter(os.path.join(out_dir, 'logs'))#!!!!!!!!!!
 
     # Shorthands
     print_every = cfg['training']['print_every']
@@ -128,7 +128,7 @@ if __name__ == '__main__':
     validate_every = cfg['training']['validate_every']
     visualize_every = cfg['training']['visualize_every']
 
-    # Print model
+    # Print model !!!!!!!
     nparameters = sum(p.numel() for p in model.parameters())
     print('Total number of parameters: %d' % nparameters)
 
@@ -140,16 +140,16 @@ if __name__ == '__main__':
         for batch in train_loader:
             it += 1
             loss = trainer.train_step(batch)
-            logger.add_scalar('train/loss', loss, it)
+            logger.add_scalar('train/loss', loss, it)#synchronize
 
             # Print output
-            if print_every > 0 and (it % print_every) == 0:
+            if print_every > 0 and (it % print_every) == 0:#!!!!!!!
                 t = datetime.datetime.now()
                 print('[Epoch %02d] it=%03d, loss=%.4f, time: %.2fs, %02d:%02d'
                         % (epoch_it, it, loss, time.time() - t0, t.hour, t.minute))
 
             # Visualize output
-            if visualize_every > 0 and (it % visualize_every) == 0:
+            if visualize_every > 0 and (it % visualize_every) == 0:#!!!!!!!
                 print('Visualizing')
                 for data_vis in data_vis_list:
                     if cfg['generation']['sliding_window']:
@@ -166,18 +166,18 @@ if __name__ == '__main__':
 
 
             # Save checkpoint
-            if (checkpoint_every > 0 and (it % checkpoint_every) == 0):
+            if (checkpoint_every > 0 and (it % checkpoint_every) == 0):#!!!!!!!
                 print('Saving checkpoint')
                 checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                 loss_val_best=metric_val_best)
 
             # Backup if necessary
-            if (backup_every > 0 and (it % backup_every) == 0):
+            if (backup_every > 0 and (it % backup_every) == 0):#!!!!!!
                 print('Backup checkpoint')
                 checkpoint_io.save('model_%d.pt' % it, epoch_it=epoch_it, it=it,
                                 loss_val_best=metric_val_best)
             # Run validation
-            if validate_every > 0 and (it % validate_every) == 0:
+            if validate_every > 0 and (it % validate_every) == 0:#synchronize
                 eval_dict = trainer.evaluate(val_loader)
                 metric_val = eval_dict[model_selection_metric]
                 print('Validation metric (%s): %.4f'
@@ -193,8 +193,36 @@ if __name__ == '__main__':
                                     loss_val_best=metric_val_best)
 
             # Exit if necessary
-            if exit_after > 0 and (time.time() - t0) >= exit_after:
+            if exit_after > 0 and (time.time() - t0) >= exit_after:#!!!!!!!!!!
                 print('Time limit reached. Exiting.')
                 checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                 loss_val_best=metric_val_best)
                 exit(3)
+
+
+if __name__ == '__main__':
+    # Arguments
+    parser = argparse.ArgumentParser(
+        description='Train a 3D reconstruction model.'
+    )
+    parser.add_argument('config', type=str, help='Path to config file.')
+    parser.add_argument('--no-cuda', action='store_true', help='Do not use cuda.')
+    parser.add_argument('--exit-after', type=int, default=-1,
+                        help='Checkpoint and exit after specified number of seconds'
+                            'with exit code 2.')
+
+    args = parser.parse_args()
+    cfg = config.load_config(args.config, 'configs/default.yaml')
+
+    n_gpus = torch.cuda.device_count()
+    assert n_gpus >= 2, f"Requires at least 2 GPUs to run, but got {n_gpus}"
+    world_size = n_gpus
+
+    # Set t0
+    t0 = time.time()
+    mp.spawn(train_basic,
+             args=(cfg, args, t0, world_size),
+             nprocs=world_size,
+             join=True)
+    print("main finished")
+
