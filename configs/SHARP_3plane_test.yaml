@@ -1,0 +1,54 @@
+inherit_from: configs/SHARP.yaml
+data:
+  input_type: partial_pointcloud
+  classes: [""]
+  path: /cluster/project/infk/courses/252-0579-00L/group20/SHARP_data_convonet/track1/test_partial
+  # pointcloud_chamfer_file: points
+  pointcloud_file: points.npz
+#  test_split: test
+#  points_file: points.npz
+#  points_iou_file: points.npz
+  pointcloud_n: 3000
+  pointcloud_noise: 0
+  #points_subsample: 1024
+  voxels_file: null
+  #unit_size: 0.005 # size of a voxel
+  points_unpackbits: false
+# model:
+#   encoder: pointnet_local_pool
+#   encoder_kwargs:
+#     hidden_dim: 32
+#     plane_type: ['xz', 'xy', 'yz']
+#     plane_resolution: 64
+#     unet: True
+#     unet_kwargs:
+#       depth: 4
+#       merge_mode: concat
+#       start_filts: 32
+#   decoder: simple_local
+#   decoder_kwargs:
+#     sample_mode: bilinear # bilinear / nearest
+#     hidden_size: 32
+#   c_dim: 32
+test:
+  threshold: 0.2
+  model_file: /cluster/project/infk/courses/252-0579-00L/group20/convolutional_occupancy_networks/out/SHARP_training/model_best.pt
+  eval_mesh: true
+  eval_pointcloud: false
+training:
+  out_dir: out/SHARP_test_3plane
+  # batch_size: 64
+  # model_selection_metric: iou
+  # model_selection_mode: maximize
+  # print_every: 100
+  # visualize_every: 10000
+  # validate_every: 1000 # TODO: validation for crop training
+  # checkpoint_every: 2000
+  # backup_every: 10000
+  # n_workers: 8
+  # n_workers_val: 4
+generation:
+  generation_dir: generation/SHARP_test_3plane
+  sliding_window: False # generate mesh in the sliding-window manner
+  resolution_0: 32 # resolution for each crop
+  upsampling_steps: 0
