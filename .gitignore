@@ -1,7 +1,9 @@
 out/
-data/
 lsf.*
 src/__pycache__/
 build/
 pyembree-0.1.6/
-data_preparation/
+*.pyc
+*.so
+*.cpp
+*.c
