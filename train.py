@@ -25,7 +25,7 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
-def train_basic(rank, cfg, args, t0, world_size):
+def train_basic(rank, cfg, args, t0, world_size, lock):
     print(f"Running basic DDP on rank {rank}.")
     setup(rank, world_size)
 
@@ -54,8 +54,9 @@ def train_basic(rank, cfg, args, t0, world_size):
 
     # Dataset
     train_dataset = config.get_dataset('train', cfg)
+    train_dataset.random_split(rank, world_size, int(t0), lock)
     val_dataset = config.get_dataset('val', cfg, return_idx=True)
-
+    val_dataset.random_split(rank, world_size, int(t0), lock)
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, num_workers=cfg['training']['n_workers'], shuffle=True,
@@ -68,47 +69,51 @@ def train_basic(rank, cfg, args, t0, world_size):
         worker_init_fn=data.worker_init_fn)
 
     # For visualizations
-    vis_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False,
-        collate_fn=data.collate_remove_none,
-        worker_init_fn=data.worker_init_fn)
-    model_counter = defaultdict(int)#!!!!!
-    data_vis_list = []#!!!!!!
+    if not rank:
+        vis_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=1, shuffle=False,
+            collate_fn=data.collate_remove_none,
+            worker_init_fn=data.worker_init_fn)
+        model_counter = defaultdict(int)#!!!!!
+        data_vis_list = []#!!!!!!
 
-    # Build a data dictionary for visualization
-    #!!!!
-    iterator = iter(vis_loader)
-    for i in range(len(vis_loader)):
-        data_vis = next(iterator)
-        idx = data_vis['idx'].item()
-        model_dict = val_dataset.get_model_dict(idx)
-        category_id = model_dict.get('category', 'n/a')
-        category_name = val_dataset.metadata[category_id].get('name', 'n/a')
-        category_name = category_name.split(',')[0]
-        if category_name == 'n/a':
-            category_name = category_id
+        # Build a data dictionary for visualization
+        #!!!!
+        iterator = iter(vis_loader)
+        for i in range(len(vis_loader)):
+            data_vis = next(iterator)
+            idx = data_vis['idx'].item()
+            model_dict = val_dataset.get_model_dict(idx)
+            category_id = model_dict.get('category', 'n/a')
+            category_name = val_dataset.metadata[category_id].get('name', 'n/a')
+            category_name = category_name.split(',')[0]
+            if category_name == 'n/a':
+                category_name = category_id
 
-        c_it = model_counter[category_id]
-        if c_it < vis_n_outputs:
-            data_vis_list.append({'category': category_name, 'it': c_it, 'data': data_vis})
+            c_it = model_counter[category_id]
+            if c_it < vis_n_outputs:
+                data_vis_list.append({'category': category_name, 'it': c_it, 'data': data_vis})
 
-        model_counter[category_id] += 1
-    #!!!!!!
+            model_counter[category_id] += 1
+        #!!!!!!
 
     # Model
-    model = config.get_model(cfg, device=device, dataset=train_dataset)
+    model = config.get_model(cfg, device=rank, dataset=train_dataset)
+    ddp_model = DDP(model, device_ids = [rank])
 
     # Generator!!!!!!!!
-    generator = config.get_generator(model, cfg, device=device)
+    if not rank:
+        generator = config.get_generator(ddp_model, cfg, device=ddp_model.device)
 
     # Intialize training
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)#??????
+    optimizer = optim.Adam(ddp_model.parameters(), lr=1e-4)#??????
     # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
-    trainer = config.get_trainer(model, optimizer, cfg, device=device)#???????
+    trainer = config.get_trainer(ddp_model, optimizer, cfg, device=ddp_model.device)#???????
 
-    checkpoint_io = CheckpointIO(out_dir, model=model, optimizer=optimizer)#!!!!!!
+    checkpoint_io = CheckpointIO(out_dir, model=ddp_model, optimizer=optimizer)#!!!!!!
+
     try:
-        load_dict = checkpoint_io.load('model.pt')
+        load_dict = checkpoint_io.load('model.pt', rank = rank)
     except FileExistsError:
         load_dict = dict()
     epoch_it = load_dict.get('epoch_it', 0)
@@ -118,9 +123,11 @@ def train_basic(rank, cfg, args, t0, world_size):
 
     if metric_val_best == np.inf or metric_val_best == -np.inf:
         metric_val_best = -model_selection_sign * np.inf
-    print('Current best validation metric (%s): %.8f'
-        % (model_selection_metric, metric_val_best))
-    logger = SummaryWriter(os.path.join(out_dir, 'logs'))#!!!!!!!!!!
+
+    if not rank:
+        print('Current best validation metric (%s): %.8f'
+            % (model_selection_metric, metric_val_best))
+        logger = SummaryWriter(os.path.join(out_dir, 'logs'))#!!!!!!!!!!
 
     # Shorthands
     print_every = cfg['training']['print_every']
@@ -129,10 +136,13 @@ def train_basic(rank, cfg, args, t0, world_size):
     visualize_every = cfg['training']['visualize_every']
 
     # Print model !!!!!!!
-    nparameters = sum(p.numel() for p in model.parameters())
-    print('Total number of parameters: %d' % nparameters)
+    if not rank:
+        nparameters = sum(p.numel() for p in model.parameters())
+        print('Total number of parameters: %d' % nparameters)
 
-    print('output path: ', cfg['training']['out_dir'])
+        print('output path: ', cfg['training']['out_dir'])
+
+    dist.barrier()
 
     while True:
         epoch_it += 1
@@ -140,16 +150,29 @@ def train_basic(rank, cfg, args, t0, world_size):
         for batch in train_loader:
             it += 1
             loss = trainer.train_step(batch)
-            logger.add_scalar('train/loss', loss, it)#synchronize
+            sum_loss = loss
+
+            if not rank:
+                #dist.send(tensor=torch.Tensor(val_loss), dst=1)
+                for rank in range(1, world_size):
+                    train_loss_from_others = torch.zeros(1)
+                    dist.recv(tensor=train_loss_from_others, src=rank)
+                    sum_loss += train_loss_from_others.item()
+            else:
+                dist.send(tensor=torch.Tensor([loss]), dst=0)
+            dist.barrier()
+            if not rank:
+                loss = sum_loss/world_size
+                logger.add_scalar('train/loss', loss, it)#synchronize
 
             # Print output
-            if print_every > 0 and (it % print_every) == 0:#!!!!!!!
+            if print_every > 0 and (it % print_every) == 0 and not rank:#!!!!!!!
                 t = datetime.datetime.now()
                 print('[Epoch %02d] it=%03d, loss=%.4f, time: %.2fs, %02d:%02d'
                         % (epoch_it, it, loss, time.time() - t0, t.hour, t.minute))
 
             # Visualize output
-            if visualize_every > 0 and (it % visualize_every) == 0:#!!!!!!!
+            if visualize_every > 0 and (it % visualize_every) == 0 and not rank:#!!!!!!!
                 print('Visualizing')
                 for data_vis in data_vis_list:
                     if cfg['generation']['sliding_window']:
@@ -166,37 +189,63 @@ def train_basic(rank, cfg, args, t0, world_size):
 
 
             # Save checkpoint
-            if (checkpoint_every > 0 and (it % checkpoint_every) == 0):#!!!!!!!
+            if (checkpoint_every > 0 and (it % checkpoint_every) == 0) and not rank:#!!!!!!!
                 print('Saving checkpoint')
                 checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                 loss_val_best=metric_val_best)
 
             # Backup if necessary
-            if (backup_every > 0 and (it % backup_every) == 0):#!!!!!!
+            if (backup_every > 0 and (it % backup_every) == 0) and not rank:#!!!!!!
                 print('Backup checkpoint')
                 checkpoint_io.save('model_%d.pt' % it, epoch_it=epoch_it, it=it,
                                 loss_val_best=metric_val_best)
+            dist.barrier()
             # Run validation
             if validate_every > 0 and (it % validate_every) == 0:#synchronize
                 eval_dict = trainer.evaluate(val_loader)
-                metric_val = eval_dict[model_selection_metric]
-                print('Validation metric (%s): %.4f'
-                    % (model_selection_metric, metric_val))
-
+                
+                temp_data = []
                 for k, v in eval_dict.items():
-                    logger.add_scalar('val/%s' % k, v, it)
+                    temp_data.append(v)
 
-                if model_selection_sign * (metric_val - metric_val_best) > 0:
-                    metric_val_best = metric_val
-                    print('New best model (loss %.4f)' % metric_val_best)
-                    checkpoint_io.save('model_best.pt', epoch_it=epoch_it, it=it,
-                                    loss_val_best=metric_val_best)
+                temp_data = torch.Tensor(temp_data)
+
+                if not rank:
+                    total_data = temp_data.detach().clone()
+                    #dist.send(tensor=torch.Tensor(val_loss), dst=1)
+                    for rank in range(1,world_size):
+                        val_loss_from_others = torch.zeros_like(total_data)
+                        dist.recv(tensor=val_loss_from_others, src=rank)
+                        total_data += val_loss_from_others
+                    total_data = total_data/world_size
+                else:
+                    dist.send(tensor=temp_data, dst=0)
+                dist.barrier()
+
+                if not rank:
+                    temp_i=0
+                    for k, v in eval_dict.items():
+                        logger.add_scalar('val/%s' % k, total_data[i].item(), it)
+                        temp_i+=1
+
+                    metric_val = eval_dict[model_selection_metric]
+                    print('Validation metric (%s): %.4f'
+                        % (model_selection_metric, metric_val))
+
+                    if model_selection_sign * (metric_val - metric_val_best) > 0:
+                        metric_val_best = metric_val
+                        print('New best model (loss %.4f)' % metric_val_best)
+                        checkpoint_io.save('model_best.pt', epoch_it=epoch_it, it=it,
+                                        loss_val_best=metric_val_best)
+                dist.barrier()
 
             # Exit if necessary
             if exit_after > 0 and (time.time() - t0) >= exit_after:#!!!!!!!!!!
                 print('Time limit reached. Exiting.')
-                checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
-                                loss_val_best=metric_val_best)
+                if not rank:
+                    checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
+                                    loss_val_best=metric_val_best)
+                dist.barrier()
                 exit(3)
 
 
@@ -220,8 +269,9 @@ if __name__ == '__main__':
 
     # Set t0
     t0 = time.time()
+    lock = mp.Lock()
     mp.spawn(train_basic,
-             args=(cfg, args, t0, world_size),
+             args=(cfg, args, t0, world_size, lock),
              nprocs=world_size,
              join=True)
     print("main finished")

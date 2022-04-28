@@ -244,6 +244,17 @@ class Shapes3dDataset(data.Dataset):
 
         return True
 
+    def random_split(self, rank, world_size, seed, lock):
+        length = len(self.data)
+        partial_length = int(length/world_size)
+        index = np.arange(0,length)
+        with lock:
+            np.random.seed(seed)
+            np.random.shuffle(index)
+            print(index[0:4])# Only For Testing! Delete this after correct testing result.
+        partial_index = index[partial_length*rank, partial_length*(rank+1)]
+        self.data = self.data[partial_index]
+
 
 def collate_remove_none(batch):
     ''' Collater that puts each data field into a tensor with outer dimension
