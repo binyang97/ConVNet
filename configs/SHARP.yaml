@@ -1,8 +1,8 @@
 method: conv_onet
 data:
   input_type: partial_pointcloud
-  classes: [""]
-  path: /cluster/project/infk/courses/252-0579-00L/group20/SHARP_data_convonet/track1/train_partial
+  classes: ["train_partial"]
+  path: /cluster/project/infk/courses/252-0579-00L/group20/SHARP_data_convonet/track1/
   train_split: train
   val_split: val
   pointcloud_file: points.npz
