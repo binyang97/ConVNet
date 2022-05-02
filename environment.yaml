@@ -165,5 +165,6 @@ dependencies:
   - zstd=1.5.2=ha95c52a_0
   - pip:
     - h5py==3.6.0
+    - pyembree==0.1.12
     - torch-scatter==2.0.9
 prefix: /cluster/home/biyang/miniconda3/envs/conv_onet
