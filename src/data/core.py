@@ -245,15 +245,15 @@ class Shapes3dDataset(data.Dataset):
         return True
 
     def random_split(self, rank, world_size, seed, lock):
-        length = len(self.data)
+        length = len(self.models)
         partial_length = int(length/world_size)
-        index = np.arange(0,length)
-        with lock:
-            np.random.seed(seed)
-            np.random.shuffle(index)
-            print(index[0:4])# Only For Testing! Delete this after correct testing result.
-        partial_index = index[partial_length*rank, partial_length*(rank+1)]
-        self.data = self.data[partial_index]
+        index = np.arange(0,length, dtype = int)
+        np.random.shuffle(index)
+        if not rank:
+
+        print(index[0:4])# Only For Testing! Delete this after correct testing result.
+        partial_index = index[partial_length*rank: partial_length*(rank+1)]
+        self.models = [self.models[x] for x in partial_index]
 
 
 def collate_remove_none(batch):

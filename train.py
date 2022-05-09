@@ -58,13 +58,16 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
     val_dataset = config.get_dataset('val', cfg, return_idx=True)
     val_dataset.random_split(rank, world_size, int(t0), lock)
 
+    '''
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, num_workers=cfg['training']['n_workers'], shuffle=True,
+        #train_dataset, batch_size=batch_size, num_workers=cfg['training']['n_workers'], shuffle=True,
+        train_dataset, batch_size=batch_size, num_workers=0, shuffle=True,
         collate_fn=data.collate_remove_none,
         worker_init_fn=data.worker_init_fn)
 
     val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=1, num_workers=cfg['training']['n_workers_val'], shuffle=False,
+        val_dataset, batch_size=1, num_workers=0, shuffle=False,
+        #val_dataset, batch_size=1, num_workers=cfg['training']['n_workers_val'], shuffle=False,
         collate_fn=data.collate_remove_none,
         worker_init_fn=data.worker_init_fn)
 
@@ -143,7 +146,7 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
         print('output path: ', cfg['training']['out_dir'])
 
     dist.barrier()
-
+ 
     while True:
         epoch_it += 1
         
@@ -247,7 +250,8 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
                                     loss_val_best=metric_val_best)
                 dist.barrier()
                 exit(3)
-
+    '''
+    cleanup()
 
 if __name__ == '__main__':
     # Arguments
