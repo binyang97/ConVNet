@@ -144,7 +144,7 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
     # Intialize training
     optimizer = optim.Adam(ddp_model.parameters(), lr=1e-4)#??????
     # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
-    trainer = config.get_trainer(ddp_model, optimizer, cfg, device=ddp_model.device)#???????
+    trainer = config.get_trainer(ddp_model, optimizer, cfg, device=ddp_model.device, world_size, rank)#???????
 
     checkpoint_io = CheckpointIO(out_dir, model=ddp_model, optimizer=optimizer)#!!!!!!
 

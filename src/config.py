@@ -73,7 +73,7 @@ def get_model(cfg, device=None, dataset=None):
 
 
 # Trainer
-def get_trainer(model, optimizer, cfg, device):
+def get_trainer(model, optimizer, cfg, device, world_size, rank):
     ''' Returns a trainer instance.
 
     Args:
@@ -84,7 +84,7 @@ def get_trainer(model, optimizer, cfg, device):
     '''
     method = cfg['method']
     trainer = method_dict[method].config.get_trainer(
-        model, optimizer, cfg, device)
+        model, optimizer, cfg, device, world_size, rank)
     return trainer
 
 

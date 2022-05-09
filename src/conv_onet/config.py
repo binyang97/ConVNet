@@ -82,7 +82,7 @@ def get_model(cfg, device=None, dataset=None, **kwargs):
     return model
 
 
-def get_trainer(model, optimizer, cfg, device, **kwargs):
+def get_trainer(model, optimizer, cfg, device, world_size, rank, **kwargs):
     ''' Returns the trainer object.
 
     Args:
@@ -101,6 +101,8 @@ def get_trainer(model, optimizer, cfg, device, **kwargs):
         device=device, input_type=input_type,
         vis_dir=vis_dir, threshold=threshold,
         eval_sample=cfg['training']['eval_sample'],
+        world_size=world_size, 
+        rank = rank
     )
 
     return trainer

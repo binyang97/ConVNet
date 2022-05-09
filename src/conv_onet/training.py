@@ -24,7 +24,7 @@ class Trainer(BaseTrainer):
     '''
 
     def __init__(self, model, optimizer, device=None, input_type='pointcloud',
-                 vis_dir=None, threshold=0.5, eval_sample=False):
+                 vis_dir=None, threshold=0.5, eval_sample=False, world_size=0, rank=0):
         self.model = model
         self.optimizer = optimizer
         self.device = device
@@ -32,9 +32,11 @@ class Trainer(BaseTrainer):
         self.vis_dir = vis_dir
         self.threshold = threshold
         self.eval_sample = eval_sample
-
-        if vis_dir is not None and not os.path.exists(vis_dir): #!!!!!
-            os.makedirs(vis_dir)
+        self.world_size = world_size
+        self.rank = rank
+        if not rank:
+            if vis_dir is not None and not os.path.exists(vis_dir): #!!!!!
+                os.makedirs(vis_dir)
 
     def train_step(self, data):
         ''' Performs a training step.
