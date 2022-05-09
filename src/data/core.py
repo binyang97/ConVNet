@@ -244,15 +244,7 @@ class Shapes3dDataset(data.Dataset):
 
         return True
 
-    def random_split(self, rank, world_size, seed, lock):
-        length = len(self.models)
-        partial_length = int(length/world_size)
-        index = np.arange(0,length, dtype = int)
-        np.random.shuffle(index)
-        if not rank:
-
-        print(index[0:4])# Only For Testing! Delete this after correct testing result.
-        partial_index = index[partial_length*rank: partial_length*(rank+1)]
+    def random_split(self, partial_index):
         self.models = [self.models[x] for x in partial_index]
 
 

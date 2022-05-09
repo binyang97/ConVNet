@@ -54,9 +54,33 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
 
     # Dataset
     train_dataset = config.get_dataset('train', cfg)
-    train_dataset.random_split(rank, world_size, int(t0), lock)
     val_dataset = config.get_dataset('val', cfg, return_idx=True)
-    val_dataset.random_split(rank, world_size, int(t0), lock)
+    if not rank:
+        #dist.send(tensor=torch.Tensor(val_loss), dst=1)
+        train_length = len(train_dataset)
+        train_partial_length = int(train_length/world_size)
+        train_index = np.arange(0,train_length, dtype = int)
+        np.random.shuffle(train_index)
+        val_length = len(val_dataset)
+        val_partial_length = int(val_length/world_size)
+        val_index = np.arange(0,val_length, dtype = int)
+        np.random.shuffle(val_index)
+        for i in range(1, world_size):
+            partial_index = torch.Tensor(train_index[train_partial_length*i: train_partial_length*(i+1)])
+            dist.send(tensor=partial_index, dst=i)
+            partial_index = torch.Tensor(val_index[val_partial_length*i: val_partial_length*(i+1)])
+            dist.send(tensor=partial_index, dst=i)
+        train_index = train_index[: train_partial_length]
+        val_index = val_index[: val_partial_length]
+    else:
+        index_torch = torch.Tensor([0])
+        dist.recv(tensor=index_torch, src=0)
+        train_index = index_torch.cpu().numpy()
+        dist.recv(tensor=index_torch, src=0)
+        val_index = index_torch.cpu().numpy()
+    dist.barrier()
+    train_dataset.random_split(train_index)
+    val_dataset.random_split(val_index)
 
     '''
     train_loader = torch.utils.data.DataLoader(
