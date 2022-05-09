@@ -245,6 +245,8 @@ class Shapes3dDataset(data.Dataset):
         return True
 
     def random_split(self, partial_index):
+        #print(len(self.models))
+        #print(np.max(partial_index))
         self.models = [self.models[x] for x in partial_index]
 
 

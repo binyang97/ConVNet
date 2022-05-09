@@ -64,13 +64,13 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
         train_index = np.arange(0,train_length, dtype = int)
         np.random.shuffle(train_index)
         for i in range(1, world_size):
-            partial_index = torch.Tensor(train_index[train_partial_length*i: train_partial_length*(i+1)])
-            dist.send(tensor=partial_index, dst=i)
+            partial_index = torch.from_numpy(train_index[train_partial_length*i: train_partial_length*(i+1)])
+            dist.send(tensor=partial_index.to(dtype = torch.int), dst=i)
         train_index = train_index[: train_partial_length]
     else:
-        index_torch = torch.zeros(train_partial_length,dtype=int)
+        index_torch = torch.zeros(train_partial_length,dtype=torch.int)
         dist.recv(tensor=index_torch, src=0)
-        train_index = index_torch.cpu().numpy()
+        train_index = index_torch.detach().cpu().numpy()
     dist.barrier()
 
     # Validation index shuffle
@@ -80,19 +80,18 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
         val_index = np.arange(0,val_length, dtype = int)
         np.random.shuffle(val_index)
         for i in range(1, world_size):
-            partial_index = torch.Tensor(val_index[val_partial_length*i: val_partial_length*(i+1)])
-            dist.send(tensor=partial_index, dst=i)
+            partial_index = torch.from_numpy(val_index[val_partial_length*i: val_partial_length*(i+1)])
+            dist.send(tensor=partial_index.to(dtype = torch.int), dst=i)
         val_index = val_index[: val_partial_length]
     else:
-        index_torch = torch.zeros(val_partial_length,dtype=int)
+        index_torch = torch.zeros(val_partial_length,dtype=torch.int)
         dist.recv(tensor=index_torch, src=0)
-        val_index = index_torch.cpu().numpy()
+        val_index = index_torch.detach().cpu().numpy()
     dist.barrier()
 
     train_dataset.random_split(train_index)
     val_dataset.random_split(val_index)
 
-    '''
     train_loader = torch.utils.data.DataLoader(
         #train_dataset, batch_size=batch_size, num_workers=cfg['training']['n_workers'], shuffle=True,
         train_dataset, batch_size=batch_size, num_workers=0, shuffle=True,
@@ -181,6 +180,7 @@ def train_basic(rank, cfg, args, t0, world_size, lock):
 
     dist.barrier()
  
+    '''
     while True:
         epoch_it += 1
         
